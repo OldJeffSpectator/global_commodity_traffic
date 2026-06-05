@@ -12,7 +12,10 @@ export default function App() {
     selectedCountry,
     tradeSummary,
     arcs,
+    paths,
     commodityFilter,
+    viewMode,
+    setViewMode,
     selectCountry,
     setCommodityFilter,
   } = useTradeData();
@@ -51,6 +54,8 @@ export default function App() {
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
       <Globe
         arcs={arcs}
+        paths={paths}
+        viewMode={viewMode}
         selectedCountry={selectedCountry}
         onCountryClick={handleCountryClick}
         onCountryRightClick={handleCountryRightClick}
@@ -61,6 +66,8 @@ export default function App() {
         commodityFilter={commodityFilter}
         onCommodityFilterChange={setCommodityFilter}
         selectedCountryName={selectedName}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
       {contextMenu && (

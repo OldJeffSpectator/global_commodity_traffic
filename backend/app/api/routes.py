@@ -1,9 +1,13 @@
 """API routes for the global commodity traffic backend."""
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db.database import get_db
-from app.db.models import Country, Commodity, BilateralTrade, SyncStatus
+from app.db.models import (
+    Country, Commodity, BilateralTrade, SyncStatus,
+    Region, TradeRoute, TradeRouteSegment,
+)
 from app.services.trade_fetcher import start_sync_background, get_current_sync_id
 
 router = APIRouter(prefix="/api")
@@ -207,3 +211,102 @@ def get_sync_status(db: Session = Depends(get_db)):
         "records_fetched": sync.records_fetched,
         "error_message": sync.error_message,
     }
+
+
+@router.get("/route/{origin_iso3}/{dest_iso3}")
+def get_route(origin_iso3: str, dest_iso3: str, db: Session = Depends(get_db)):
+    """Get the computed trade route between two countries."""
+    o = origin_iso3.upper()
+    d = dest_iso3.upper()
+
+    # Routes are stored with sorted keys
+    route = db.query(TradeRoute).filter_by(origin_iso3=min(o, d), destination_iso3=max(o, d)).first()
+    if not route:
+        route = db.query(TradeRoute).filter_by(origin_iso3=o, destination_iso3=d).first()
+    if not route:
+        route = db.query(TradeRoute).filter_by(origin_iso3=d, destination_iso3=o).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    segments = (
+        db.query(TradeRouteSegment)
+        .filter_by(route_id=route.id)
+        .order_by(TradeRouteSegment.sequence_order)
+        .all()
+    )
+
+    region_details = []
+    for seg in segments:
+        region = db.query(Region).filter_by(id=seg.region_id).first()
+        if region:
+            region_details.append({
+                "sequence": seg.sequence_order,
+                "region_id": region.id,
+                "name": region.name,
+                "type": region.type,
+                "center_lat": region.center_lat,
+                "center_lng": region.center_lng,
+            })
+
+    path_coords = json.loads(route.path_coords_json) if route.path_coords_json else []
+
+    return {
+        "origin_iso3": route.origin_iso3,
+        "destination_iso3": route.destination_iso3,
+        "total_cost": route.total_cost,
+        "transport_mode": route.transport_mode,
+        "path_coords": path_coords,
+        "segments": region_details,
+    }
+
+
+@router.get("/routes/{iso3}")
+def get_routes_for_country(iso3: str, db: Session = Depends(get_db)):
+    """Get all computed routes involving a country (for visualization)."""
+    iso = iso3.upper()
+    routes = (
+        db.query(TradeRoute)
+        .filter((TradeRoute.origin_iso3 == iso) | (TradeRoute.destination_iso3 == iso))
+        .all()
+    )
+
+    results = []
+    for route in routes:
+        segments = (
+            db.query(TradeRouteSegment)
+            .filter_by(route_id=route.id)
+            .order_by(TradeRouteSegment.sequence_order)
+            .all()
+        )
+        region_names = []
+        region_centers = []
+        for seg in segments:
+            region = db.query(Region).filter_by(id=seg.region_id).first()
+            if region:
+                region_names.append(region.name)
+                region_centers.append({"lat": region.center_lat, "lng": region.center_lng})
+
+        partner = route.destination_iso3 if route.origin_iso3 == iso else route.origin_iso3
+        partner_country = db.query(Country).filter_by(iso3=partner).first()
+
+        results.append({
+            "partner_iso3": partner,
+            "partner_name": partner_country.name if partner_country else partner,
+            "total_cost": route.total_cost,
+            "transport_mode": route.transport_mode,
+            "region_names": region_names,
+            "region_centers": region_centers,
+            "path_coords": json.loads(route.path_coords_json) if route.path_coords_json else [],
+        })
+
+    return {"country": iso, "routes": results}
+
+
+@router.get("/regions")
+def list_regions(db: Session = Depends(get_db)):
+    """List all named regions."""
+    regions = db.query(Region).all()
+    return [
+        {"id": r.id, "name": r.name, "type": r.type, "center_lat": r.center_lat, "center_lng": r.center_lng}
+        for r in regions
+    ]

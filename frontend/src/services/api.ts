@@ -3,6 +3,7 @@ import type {
   CommodityData,
   TradeResponse,
   TradeSummary,
+  RoutesResponse,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -43,5 +44,9 @@ export async function getTradeSummary(
   if (year) params.set("year", String(year));
   const qs = params.toString();
   return fetchJSON<TradeSummary>(`/trade/${iso3}/summary${qs ? `?${qs}` : ""}`);
+}
+
+export async function getRoutesForCountry(iso3: string): Promise<RoutesResponse> {
+  return fetchJSON<RoutesResponse>(`/routes/${iso3}`);
 }
 

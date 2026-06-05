@@ -61,3 +61,37 @@ export interface ArcData {
   partner_iso3: string;
   value: number;
 }
+
+export interface RouteSegment {
+  sequence: number;
+  region_id: number;
+  name: string;
+  type: string;
+  center_lat: number;
+  center_lng: number;
+}
+
+export interface TradeRouteData {
+  partner_iso3: string;
+  partner_name: string;
+  total_cost: number;
+  transport_mode: string;
+  region_names: string[];
+  region_centers: Array<{ lat: number; lng: number }>;
+  path_coords: Array<[number, number]>;
+}
+
+export interface RoutesResponse {
+  country: string;
+  routes: TradeRouteData[];
+}
+
+export interface PathData {
+  points: Array<{ lat: number; lng: number }>;
+  color: string;
+  opacity: number;
+  stroke: number;
+  label: string;
+  partner_iso3: string;
+  value: number;
+}

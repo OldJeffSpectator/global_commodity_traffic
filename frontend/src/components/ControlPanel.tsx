@@ -1,10 +1,13 @@
 import type { CommodityData } from "../types";
+import type { ViewMode } from "../hooks/useTradeData";
 
 interface ControlPanelProps {
   commodities: CommodityData[];
   commodityFilter: string | null;
   onCommodityFilterChange: (code: string | null) => void;
   selectedCountryName: string | null;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
 }
 
 export default function ControlPanel({
@@ -12,6 +15,8 @@ export default function ControlPanel({
   commodityFilter,
   onCommodityFilterChange,
   selectedCountryName,
+  viewMode,
+  onViewModeChange,
 }: ControlPanelProps) {
   return (
     <div style={styles.panel}>
@@ -22,6 +27,30 @@ export default function ControlPanel({
           Selected: <strong>{selectedCountryName}</strong>
         </div>
       )}
+
+      <div style={styles.section}>
+        <label style={styles.label}>View Mode</label>
+        <div style={styles.toggleGroup}>
+          <button
+            style={{
+              ...styles.toggleBtn,
+              ...(viewMode === "arcs" ? styles.toggleActive : {}),
+            }}
+            onClick={() => onViewModeChange("arcs")}
+          >
+            Parabola Arcs
+          </button>
+          <button
+            style={{
+              ...styles.toggleBtn,
+              ...(viewMode === "routes" ? styles.toggleActive : {}),
+            }}
+            onClick={() => onViewModeChange("routes")}
+          >
+            Trade Routes
+          </button>
+        </div>
+      </div>
 
       <div style={styles.section}>
         <label style={styles.label}>Commodity Filter</label>
@@ -42,15 +71,24 @@ export default function ControlPanel({
       </div>
 
       <div style={styles.legend}>
-        <div style={styles.legendTitle}>Commodity Colors</div>
-        {LEGEND_ITEMS.map(([code, color, name]) => (
-          <div key={code} style={styles.legendItem}>
-            <span
-              style={{ ...styles.legendDot, backgroundColor: color }}
-            />
-            <span style={styles.legendText}>{name}</span>
-          </div>
-        ))}
+        <div style={styles.legendTitle}>
+          {viewMode === "arcs" ? "Commodity Colors" : "Route Intensity"}
+        </div>
+        {viewMode === "arcs" ? (
+          LEGEND_ITEMS.map(([code, color, name]) => (
+            <div key={code} style={styles.legendItem}>
+              <span style={{ ...styles.legendDot, backgroundColor: color }} />
+              <span style={styles.legendText}>{name}</span>
+            </div>
+          ))
+        ) : (
+          ROUTE_LEGEND.map(([color, label]) => (
+            <div key={label} style={styles.legendItem}>
+              <span style={{ ...styles.legendDot, backgroundColor: color }} />
+              <span style={styles.legendText}>{label}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -67,6 +105,12 @@ const LEGEND_ITEMS: [string, string, string][] = [
   ["76", "#c0c0c0", "Aluminium"],
   ["74", "#cc6600", "Copper"],
   ["39", "#3399ff", "Plastics"],
+];
+
+const ROUTE_LEGEND: [string, string][] = [
+  ["#00ffcc", "High trade volume"],
+  ["#00aaff", "Medium trade volume"],
+  ["#4488cc", "Low trade volume"],
 ];
 
 const styles: Record<string, React.CSSProperties> = {
@@ -144,5 +188,25 @@ const styles: Record<string, React.CSSProperties> = {
   legendText: {
     fontSize: 11,
     color: "#b0c0d0",
+  },
+  toggleGroup: {
+    display: "flex",
+    gap: 4,
+  },
+  toggleBtn: {
+    flex: 1,
+    padding: "6px 8px",
+    fontSize: 11,
+    fontWeight: 600,
+    border: "1px solid rgba(100, 150, 255, 0.3)",
+    borderRadius: 6,
+    background: "rgba(30, 40, 60, 0.9)",
+    color: "#8899aa",
+    cursor: "pointer",
+  },
+  toggleActive: {
+    background: "rgba(0, 150, 255, 0.25)",
+    borderColor: "rgba(0, 200, 255, 0.6)",
+    color: "#e0f0ff",
   },
 };

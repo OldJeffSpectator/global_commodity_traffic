@@ -1,9 +1,34 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import GlobeGL from "react-globe.gl";
-import type { ArcData } from "../types";
+import type { ArcData, PathData } from "../types";
+import type { ViewMode } from "../hooks/useTradeData";
+
+function useThrottledState<T>(initial: T, ms: number): [T, (val: T) => void] {
+  const [state, setState] = useState<T>(initial);
+  const lastUpdate = useRef(0);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const throttledSet = useCallback((val: T) => {
+    const now = Date.now();
+    if (now - lastUpdate.current >= ms) {
+      lastUpdate.current = now;
+      setState(val);
+    } else {
+      if (pending.current) clearTimeout(pending.current);
+      pending.current = setTimeout(() => {
+        lastUpdate.current = Date.now();
+        setState(val);
+      }, ms - (now - lastUpdate.current));
+    }
+  }, [ms]);
+
+  return [state, throttledSet];
+}
 
 interface GlobeProps {
   arcs: ArcData[];
+  paths: PathData[];
+  viewMode: ViewMode;
   selectedCountry: string | null;
   onCountryClick: (iso3: string | null) => void;
   onCountryRightClick: (iso3: string, x: number, y: number) => void;
@@ -15,15 +40,42 @@ interface GeoFeature {
   geometry: Record<string, unknown>;
 }
 
+interface RegionLabel {
+  id: number;
+  name: string;
+  type: string;
+  lat: number;
+  lng: number;
+}
+
+const REGION_TYPE_COLORS: Record<string, string> = {
+  ocean: "rgba(60, 140, 200, 0.7)",
+  sea: "rgba(80, 170, 220, 0.75)",
+  strait: "rgba(255, 200, 80, 0.9)",
+  canal: "rgba(255, 140, 60, 0.9)",
+  land_corridor: "rgba(140, 220, 100, 0.7)",
+};
+
+const REGION_TYPE_SIZES: Record<string, number> = {
+  ocean: 0.9,
+  sea: 0.6,
+  strait: 0.45,
+  canal: 0.45,
+  land_corridor: 0.4,
+};
+
 export default function Globe({
   arcs,
+  paths,
+  viewMode,
   selectedCountry,
   onCountryClick,
   onCountryRightClick,
 }: GlobeProps) {
   const globeRef = useRef<any>(null);
   const [countries, setCountries] = useState<GeoFeature[]>([]);
-  const [hoverCountry, setHoverCountry] = useState<GeoFeature | null>(null);
+  const [hoverCountry, setHoverCountry] = useThrottledState<GeoFeature | null>(null, 80);
+  const [regionLabels, setRegionLabels] = useState<RegionLabel[]>([]);
 
   useEffect(() => {
     fetch("/api/countries-geojson")
@@ -35,13 +87,30 @@ export default function Globe({
       .then((res) => res.json())
       .then((data) => setCountries(data.features))
       .catch(() => {
-        // Fallback: load from static public folder
         fetch(
           "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson"
         )
           .then((r) => r.json())
           .then((data) => setCountries(data.features));
       });
+  }, []);
+
+  // Fetch region labels from backend
+  useEffect(() => {
+    fetch("/api/regions")
+      .then((res) => res.json())
+      .then((regions: Array<{ id: number; name: string; type: string; center_lat: number; center_lng: number }>) => {
+        setRegionLabels(
+          regions.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            lat: r.center_lat,
+            lng: r.center_lng,
+          }))
+        );
+      })
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -67,7 +136,6 @@ export default function Globe({
         (feat.properties.ADM0_A3 as string);
       if (iso3 && iso3 !== "-99") {
         onCountryClick(iso3);
-        // Stop auto-rotation when a country is selected
         if (globeRef.current) {
           const controls = globeRef.current.controls();
           if (controls) controls.autoRotate = false;
@@ -97,13 +165,8 @@ export default function Globe({
       const f = feat as GeoFeature;
       const iso3 =
         (f.properties.ISO_A3 as string) || (f.properties.ADM0_A3 as string);
-
-      if (iso3 === selectedCountry) {
-        return "rgba(0, 200, 255, 0.6)";
-      }
-      if (f === hoverCountry) {
-        return "rgba(100, 180, 255, 0.35)";
-      }
+      if (iso3 === selectedCountry) return "rgba(0, 200, 255, 0.6)";
+      if (f === hoverCountry) return "rgba(100, 180, 255, 0.35)";
       return "rgba(60, 80, 120, 0.25)";
     },
     [selectedCountry, hoverCountry]
@@ -133,6 +196,24 @@ export default function Globe({
     [selectedCountry, hoverCountry]
   );
 
+  // Memoize arcs data so hover doesn't restart animations
+  const arcsDataStable = useMemo(
+    () => (viewMode === "arcs" ? arcs : []),
+    [arcs, viewMode]
+  );
+
+  // Memoize paths data so hover doesn't restart animations
+  const pathsDataStable = useMemo(() => {
+    if (viewMode !== "routes") return [];
+    return paths.map((p) => ({
+      coords: p.points.map((pt) => [pt.lat, pt.lng]),
+      color: p.color,
+      opacity: p.opacity,
+      stroke: p.stroke,
+      label: p.label,
+    }));
+  }, [paths, viewMode]);
+
   return (
     <GlobeGL
       ref={globeRef}
@@ -159,7 +240,8 @@ export default function Globe({
       onPolygonHover={(polygon: object | null) =>
         setHoverCountry(polygon as GeoFeature | null)
       }
-      arcsData={arcs}
+      // Arcs (parabola mode)
+      arcsData={arcsDataStable}
       arcStartLat={(d: object) => (d as ArcData).startLat}
       arcStartLng={(d: object) => (d as ArcData).startLng}
       arcEndLat={(d: object) => (d as ArcData).endLat}
@@ -176,6 +258,30 @@ export default function Globe({
         const arc = d as ArcData;
         return `<div style="background:rgba(0,0,0,0.85);padding:6px 10px;border-radius:4px;font-size:12px;">${arc.label}</div>`;
       }}
+      // Paths (trade route mode)
+      pathsData={pathsDataStable}
+      pathPoints="coords"
+      pathPointLat={(p: number[]) => p[0]}
+      pathPointLng={(p: number[]) => p[1]}
+      pathColor={(d: object) => (d as { color: string }).color}
+      pathStroke={(d: object) => (d as { stroke: number }).stroke}
+      pathDashLength={0.6}
+      pathDashGap={0.3}
+      pathDashAnimateTime={3000}
+      pathLabel={(d: object) => {
+        const path = d as { label: string };
+        return `<div style="background:rgba(0,0,0,0.85);padding:6px 10px;border-radius:4px;font-size:12px;max-width:300px;">${path.label}</div>`;
+      }}
+      // Region labels (ocean/sea/strait/canal names)
+      labelsData={regionLabels}
+      labelLat={(d: object) => (d as RegionLabel).lat}
+      labelLng={(d: object) => (d as RegionLabel).lng}
+      labelText={(d: object) => (d as RegionLabel).name}
+      labelSize={(d: object) => REGION_TYPE_SIZES[(d as RegionLabel).type] || 0.5}
+      labelColor={(d: object) => REGION_TYPE_COLORS[(d as RegionLabel).type] || "rgba(150,200,255,0.6)"}
+      labelDotRadius={0}
+      labelAltitude={0.025}
+      labelResolution={3}
       width={window.innerWidth}
       height={window.innerHeight}
     />

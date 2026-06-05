@@ -81,15 +81,77 @@ After design critique, the following scope was agreed for V1:
 
 ---
 
-## V2 Future TODOs
+## V2 Implementation (Completed)
+
+### Design
+
+V2 adds realistic trade route visualization showing the actual path goods travel between countries (sea lanes, straits, canals, land borders, railway corridors) as an alternative to the simple parabola arcs.
+
+### Architecture
+
+1. **Strategic Maritime Graph** -- 54 key waypoints along major shipping lanes (Atlantic, Pacific, Indian Ocean, Mediterranean, Arctic) connected by ~85 edges. This replaces the full 56k-node MARNET graph which was too slow for pure-Python Dijkstra on hundreds of pairs.
+
+2. **Land Border Graph** -- ~66 curated land border connections between major trading nations.
+
+3. **Railway Corridors** -- Reduced cost on specific routes:
+   - China-Europe Railway Express (CHN → KAZ → RUS → BLR → POL → DEU)
+   - NAFTA Corridor (USA ↔ CAN, USA ↔ MEX)
+
+4. **Cost Model** (relative per km):
+   | Segment Type | Cost/km |
+   |---|---|
+   | Ocean | 0.5 |
+   | Strait | 0.6 |
+   | Canal | 1.5 |
+   | Port access | 1.0 |
+   | Railway corridor | 2.0 |
+   | Land border | 5.0 |
+
+5. **Route Computation** -- Dijkstra on ~226 node graph (54 waypoints + 172 country ports). Computes all 564 unique country pairs in <1 second.
+
+6. **Region Labeling** -- Each route path is annotated with named regions (oceans, seas, straits, canals) by checking point-in-bounding-box against 41 defined regions (from `regions.json`).
+
+7. **Database Models Added:**
+   - `Region` -- named geographic regions with center coordinates
+   - `TradeRoute` -- origin/destination pair with total cost and path coordinates
+   - `TradeRouteSegment` -- ordered region list for each route
+
+8. **API Endpoints Added:**
+   - `GET /api/route/{origin}/{dest}` -- single route with full path and region segments
+   - `GET /api/routes/{iso3}` -- all routes for a country (for visualization)
+   - `GET /api/regions` -- list all named regions
+
+9. **Frontend Mode Toggle:**
+   - "Parabola Arcs" (V1 default) -- direct arcs between countries
+   - "Trade Routes" (V2) -- paths following shipping lanes through waypoints, color-coded by trade volume intensity
+
+10. **Region Labels on Globe:**
+    - All 41 named regions (oceans, seas, straits, canals, land corridors) are rendered as text labels on the globe surface
+    - Color-coded by type: oceans (blue), seas (cyan), straits (yellow), canals (orange), corridors (green)
+    - Sized by importance: oceans largest, straits/canals smallest
+    - Labels float above country polygons (altitude 0.025) to avoid being obscured
+
+11. **Performance Optimization:**
+    - Hover state is throttled (80ms) to prevent rapid-fire React re-renders
+    - Arc/path data is memoized (`useMemo`) so hover interactions don't restart route animations
+    - Route animations persist until a new country is clicked
+
+### Critique & Limitations
+
+- Strategic waypoints are manually curated; real routing would use port-to-port distances
+- Cost model is static (no seasonal/geopolitical variation)
+- Path coordinates are straight-line segments between waypoints (not true geodesic curves)
+- Railway corridors only cover 2 major routes; more exist globally
+- No inland waterway routing (Rhine, Yangtze, Mississippi)
+- Region boundaries are defined as bounding boxes, not precise polygon outlines
+
+---
+
+## V3 Future TODOs
 
 - [ ] Conflict/chokepoint simulation (block a chokepoint → show affected trade flows)
-- [ ] Route visualization using MARNET maritime waypoint graph
 - [ ] Chokepoint layer (IMF PortWatch 28 global chokepoints)
 - [ ] State-level drill-down (US, Brazil, EU countries with subnational data)
-- [ ] Land corridor visualization (~20 curated major rail/truck corridors)
+- [ ] More railway/inland corridors (Trans-Siberian, Middle Corridor, Rhine)
 - [ ] Time-series animation (trade flows year-by-year)
-
-### V2 Architecture Note
-
-For route generation, use the Eurostat MARNET maritime waypoint graph (nodes = sea waypoints, not countries). Shortest-path on this graph naturally traverses chokepoints. Avoid BFS on a country adjacency graph, which would produce unrealistic "hopping" routes.
+- [ ] Dynamic cost model (geopolitical events adjust routing weights)

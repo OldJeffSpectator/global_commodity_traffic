@@ -49,15 +49,6 @@ export interface TradeSummary {
   }>;
 }
 
-export interface SyncStatus {
-  id?: number;
-  status: string;
-  started_at?: string;
-  completed_at?: string;
-  records_fetched?: number;
-  error_message?: string;
-}
-
 export interface ArcData {
   startLat: number;
   startLng: number;

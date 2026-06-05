@@ -3,7 +3,6 @@ import type {
   CommodityData,
   TradeResponse,
   TradeSummary,
-  SyncStatus,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -46,15 +45,3 @@ export async function getTradeSummary(
   return fetchJSON<TradeSummary>(`/trade/${iso3}/summary${qs ? `?${qs}` : ""}`);
 }
 
-export async function triggerSync(year?: number): Promise<{ sync_id: number }> {
-  const params = new URLSearchParams();
-  if (year) params.set("year", String(year));
-  const qs = params.toString();
-  return fetchJSON<{ sync_id: number }>(`/trade/sync${qs ? `?${qs}` : ""}`, {
-    method: "POST",
-  });
-}
-
-export async function getSyncStatus(): Promise<SyncStatus> {
-  return fetchJSON<SyncStatus>("/trade/sync/status");
-}

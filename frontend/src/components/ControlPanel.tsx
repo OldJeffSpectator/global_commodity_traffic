@@ -1,6 +1,4 @@
-import { useState } from "react";
-import type { CommodityData, SyncStatus } from "../types";
-import { triggerSync, getSyncStatus } from "../services/api";
+import type { CommodityData } from "../types";
 
 interface ControlPanelProps {
   commodities: CommodityData[];
@@ -15,27 +13,6 @@ export default function ControlPanel({
   onCommodityFilterChange,
   selectedCountryName,
 }: ControlPanelProps) {
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await triggerSync();
-      const pollInterval = setInterval(async () => {
-        const status = await getSyncStatus();
-        setSyncStatus(status);
-        if (status.status === "completed" || status.status === "failed") {
-          clearInterval(pollInterval);
-          setSyncing(false);
-        }
-      }, 3000);
-    } catch (err) {
-      setSyncing(false);
-      console.error("Sync failed:", err);
-    }
-  };
-
   return (
     <div style={styles.panel}>
       <h2 style={styles.title}>Global Commodity Traffic</h2>
@@ -62,27 +39,6 @@ export default function ControlPanel({
             </option>
           ))}
         </select>
-      </div>
-
-      <div style={styles.section}>
-        <button
-          style={{
-            ...styles.button,
-            opacity: syncing ? 0.6 : 1,
-          }}
-          onClick={handleSync}
-          disabled={syncing}
-        >
-          {syncing ? "Syncing..." : "Re-pull Trade Data"}
-        </button>
-        {syncStatus && (
-          <div style={styles.syncInfo}>
-            Status: {syncStatus.status}
-            {syncStatus.records_fetched
-              ? ` (${syncStatus.records_fetched} records)`
-              : ""}
-          </div>
-        )}
       </div>
 
       <div style={styles.legend}>
@@ -160,23 +116,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e0e8f0",
     fontSize: 13,
     outline: "none",
-  },
-  button: {
-    width: "100%",
-    padding: "10px 14px",
-    background: "linear-gradient(135deg, #1a3a5c, #0d2040)",
-    border: "1px solid rgba(0, 180, 255, 0.4)",
-    borderRadius: 8,
-    color: "#00d4ff",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "all 0.2s",
-  },
-  syncInfo: {
-    fontSize: 11,
-    color: "#88aacc",
-    marginTop: 6,
   },
   legend: {
     marginTop: 16,

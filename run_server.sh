@@ -3,6 +3,10 @@
 # Backend: http://localhost:16667
 # Frontend: http://localhost:16668
 
+# ===== UN Comtrade API Key (free tier) =====
+# Get yours at https://comtradedeveloper.un.org/
+export COMTRADE_API_KEY="YOUR_KEY_HERE"
+
 set -e
 
 echo "============================================"

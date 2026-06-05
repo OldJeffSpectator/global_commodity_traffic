@@ -3,6 +3,10 @@ REM Global Commodity Traffic - Start both backend and frontend servers
 REM Backend: http://localhost:16667
 REM Frontend: http://localhost:16668
 
+REM ===== UN Comtrade API Key (free tier) =====
+REM Get yours at https://comtradedeveloper.un.org/
+set COMTRADE_API_KEY=3bf9dc83d1834c5f9f262476104a238e
+
 echo ============================================
 echo  Global Commodity Traffic - Server Launcher
 echo ============================================
@@ -41,13 +45,13 @@ if not exist "backend\data\trade.db" (
 
 echo.
 echo [Starting] Backend server on port 16667...
-start "GCT Backend" cmd /c "cd backend && .venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 16667"
+start "GCT Backend" cmd /c "set HTTP_PROXY= && set HTTPS_PROXY= && set http_proxy= && set https_proxy= && set NO_PROXY=* && cd backend && .venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 16667"
 
 REM Wait for backend to start
 timeout /t 3 /nobreak > nul
 
 echo [Starting] Frontend dev server on port 16668...
-start "GCT Frontend" cmd /c "cd frontend && npm run dev"
+start "GCT Frontend" cmd /c "set PATH=C:\Program Files\nodejs;%PATH% && cd frontend && npm run dev"
 
 echo.
 echo ============================================

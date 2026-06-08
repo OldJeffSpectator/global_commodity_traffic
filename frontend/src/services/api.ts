@@ -4,6 +4,9 @@ import type {
   TradeResponse,
   TradeSummary,
   RoutesResponse,
+  RegionRoutesResponse,
+  RegionTradeStats,
+  YearRange,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -26,27 +29,51 @@ export async function getCommodities(): Promise<CommodityData[]> {
 
 export async function getTradeForCountry(
   iso3: string,
-  year?: number,
-  commodity?: string
+  options?: { year?: number; yearStart?: number; yearEnd?: number; commodity?: string }
 ): Promise<TradeResponse> {
   const params = new URLSearchParams();
-  if (year) params.set("year", String(year));
-  if (commodity) params.set("commodity", commodity);
+  if (options?.year) params.set("year", String(options.year));
+  if (options?.yearStart) params.set("year_start", String(options.yearStart));
+  if (options?.yearEnd) params.set("year_end", String(options.yearEnd));
+  if (options?.commodity) params.set("commodity", options.commodity);
   const qs = params.toString();
   return fetchJSON<TradeResponse>(`/trade/${iso3}${qs ? `?${qs}` : ""}`);
 }
 
 export async function getTradeSummary(
   iso3: string,
-  year?: number
+  options?: { year?: number; yearStart?: number; yearEnd?: number; commodity?: string }
 ): Promise<TradeSummary> {
   const params = new URLSearchParams();
-  if (year) params.set("year", String(year));
+  if (options?.year) params.set("year", String(options.year));
+  if (options?.yearStart) params.set("year_start", String(options.yearStart));
+  if (options?.yearEnd) params.set("year_end", String(options.yearEnd));
+  if (options?.commodity) params.set("commodity", options.commodity);
   const qs = params.toString();
   return fetchJSON<TradeSummary>(`/trade/${iso3}/summary${qs ? `?${qs}` : ""}`);
 }
 
 export async function getRoutesForCountry(iso3: string): Promise<RoutesResponse> {
   return fetchJSON<RoutesResponse>(`/routes/${iso3}`);
+}
+
+export async function getRegionRoutes(regionId: number): Promise<RegionRoutesResponse> {
+  return fetchJSON<RegionRoutesResponse>(`/region/${regionId}/routes`);
+}
+
+export async function getRegionTradeStats(
+  regionId: number,
+  options?: { yearStart?: number; yearEnd?: number; commodity?: string }
+): Promise<RegionTradeStats> {
+  const params = new URLSearchParams();
+  if (options?.yearStart) params.set("year_start", String(options.yearStart));
+  if (options?.yearEnd) params.set("year_end", String(options.yearEnd));
+  if (options?.commodity) params.set("commodity", options.commodity);
+  const qs = params.toString();
+  return fetchJSON<RegionTradeStats>(`/region/${regionId}/trade-stats${qs ? `?${qs}` : ""}`);
+}
+
+export async function getYearRange(): Promise<YearRange> {
+  return fetchJSON<YearRange>("/trade/year-range");
 }
 

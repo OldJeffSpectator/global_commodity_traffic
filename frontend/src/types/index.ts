@@ -95,3 +95,47 @@ export interface PathData {
   partner_iso3: string;
   value: number;
 }
+
+export interface RegionData {
+  id: number;
+  name: string;
+  type: string;
+  center_lat: number;
+  center_lng: number;
+}
+
+export interface RegionRouteData {
+  origin_iso3: string;
+  origin_name: string;
+  destination_iso3: string;
+  destination_name: string;
+  total_cost: number;
+  transport_mode: string;
+  path_coords: Array<[number, number]>;
+}
+
+export interface RegionRoutesResponse {
+  region: { id: number; name: string; type: string };
+  route_count: number;
+  routes: RegionRouteData[];
+}
+
+export interface RegionTradeStats {
+  region: { id: number; name: string; type: string };
+  route_count: number;
+  total_export_usd: number;
+  total_import_usd: number;
+  top_pairs: Array<{
+    origin_iso3: string;
+    origin_name: string;
+    destination_iso3: string;
+    destination_name: string;
+    total_value: number;
+    top_commodities: Array<{ code: string; name: string; fwd_value: number; rev_value: number }>;
+  }>;
+}
+
+export interface YearRange {
+  min_year: number;
+  max_year: number;
+}

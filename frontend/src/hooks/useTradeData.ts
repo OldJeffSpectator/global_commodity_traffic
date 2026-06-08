@@ -6,6 +6,7 @@ import type {
   TradeSummary,
   ArcData,
   PathData,
+  YearRange,
 } from "../types";
 import {
   getCountries,
@@ -13,19 +14,20 @@ import {
   getTradeForCountry,
   getTradeSummary,
   getRoutesForCountry,
+  getYearRange,
 } from "../services/api";
 
 const COMMODITY_COLORS: Record<string, string> = {
-  "27": "#ff6600", // Energy - orange
-  "10": "#66cc33", // Cereals - green
-  "72": "#999999", // Iron/steel - gray
-  "26": "#cc6633", // Ores - brown
-  "31": "#9933cc", // Fertilizers - purple
-  "44": "#336600", // Wood - dark green
-  "17": "#ff99cc", // Sugar - pink
-  "76": "#c0c0c0", // Aluminium - silver
-  "74": "#cc6600", // Copper - copper
-  "39": "#3399ff", // Plastics - blue
+  "27": "#ff6600",
+  "10": "#66cc33",
+  "72": "#999999",
+  "26": "#cc6633",
+  "31": "#9933cc",
+  "44": "#336600",
+  "17": "#ff99cc",
+  "76": "#c0c0c0",
+  "74": "#cc6600",
+  "39": "#3399ff",
 };
 
 export type ViewMode = "arcs" | "routes";
@@ -41,10 +43,18 @@ export function useTradeData() {
   const [loading, setLoading] = useState(false);
   const [commodityFilter, setCommodityFilter] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("arcs");
+  const [yearRange, setYearRange] = useState<YearRange>({ min_year: 2000, max_year: 2023 });
+  const [selectedYearStart, setSelectedYearStart] = useState<number>(2020);
+  const [selectedYearEnd, setSelectedYearEnd] = useState<number>(2023);
 
   useEffect(() => {
     getCountries().then(setCountries).catch(console.error);
     getCommodities().then(setCommodities).catch(console.error);
+    getYearRange().then((range) => {
+      setYearRange(range);
+      setSelectedYearStart(range.max_year - 3);
+      setSelectedYearEnd(range.max_year);
+    }).catch(console.error);
   }, []);
 
   const selectCountry = useCallback(
@@ -63,14 +73,21 @@ export function useTradeData() {
 
       try {
         const [trade, summary] = await Promise.all([
-          getTradeForCountry(iso3, undefined, commodityFilter || undefined),
-          getTradeSummary(iso3),
+          getTradeForCountry(iso3, {
+            yearStart: selectedYearStart,
+            yearEnd: selectedYearEnd,
+            commodity: commodityFilter || undefined,
+          }),
+          getTradeSummary(iso3, {
+            yearStart: selectedYearStart,
+            yearEnd: selectedYearEnd,
+            commodity: commodityFilter || undefined,
+          }),
         ]);
 
         setTradeData(trade);
         setTradeSummary(summary);
 
-        // Build arcs
         const maxValue = Math.max(
           ...trade.trades.map((t) => t.export_value_usd + t.import_value_usd),
           1
@@ -96,7 +113,6 @@ export function useTradeData() {
             };
           });
 
-        // Aggregate arcs by partner
         const aggregated = new Map<string, ArcData>();
         for (const arc of newArcs) {
           const existing = aggregated.get(arc.partner_iso3);
@@ -119,7 +135,6 @@ export function useTradeData() {
         }
         setArcs(finalArcs);
 
-        // Fetch routes for path visualization
         try {
           const routesResp = await getRoutesForCountry(iso3);
           const tradeValueByPartner = new Map<string, number>();
@@ -158,7 +173,7 @@ export function useTradeData() {
         setLoading(false);
       }
     },
-    [selectedCountry, commodityFilter]
+    [selectedCountry, commodityFilter, selectedYearStart, selectedYearEnd]
   );
 
   const updateCommodityFilter = useCallback(
@@ -172,6 +187,25 @@ export function useTradeData() {
     [selectedCountry, selectCountry]
   );
 
+  const updateYearRange = useCallback(
+    (start: number, end: number) => {
+      setSelectedYearStart(start);
+      setSelectedYearEnd(end);
+    },
+    []
+  );
+
+  // Re-fetch when year range changes (with debounce via effect)
+  useEffect(() => {
+    if (selectedCountry) {
+      const timer = setTimeout(() => {
+        selectCountry(null);
+        setTimeout(() => selectCountry(selectedCountry), 50);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedYearStart, selectedYearEnd]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return {
     countries,
     commodities,
@@ -183,9 +217,13 @@ export function useTradeData() {
     loading,
     commodityFilter,
     viewMode,
+    yearRange,
+    selectedYearStart,
+    selectedYearEnd,
     setViewMode,
     selectCountry,
     setCommodityFilter: updateCommodityFilter,
+    updateYearRange,
   };
 }
 

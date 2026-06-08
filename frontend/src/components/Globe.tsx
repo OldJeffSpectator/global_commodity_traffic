@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import GlobeGL from "react-globe.gl";
-import type { ArcData, PathData } from "../types";
+import type { ArcData, PathData, RegionData } from "../types";
 import type { ViewMode } from "../hooks/useTradeData";
 
 function useThrottledState<T>(initial: T, ms: number): [T, (val: T) => void] {
@@ -32,20 +32,14 @@ interface GlobeProps {
   selectedCountry: string | null;
   onCountryClick: (iso3: string | null) => void;
   onCountryRightClick: (iso3: string, x: number, y: number) => void;
+  onRegionClick: (region: RegionData) => void;
+  onRegionRightClick: (region: RegionData, x: number, y: number) => void;
 }
 
 interface GeoFeature {
   type: string;
   properties: Record<string, unknown>;
   geometry: Record<string, unknown>;
-}
-
-interface RegionLabel {
-  id: number;
-  name: string;
-  type: string;
-  lat: number;
-  lng: number;
 }
 
 const REGION_TYPE_COLORS: Record<string, string> = {
@@ -64,6 +58,22 @@ const REGION_TYPE_SIZES: Record<string, number> = {
   land_corridor: 0.4,
 };
 
+const POINT_COLORS: Record<string, string> = {
+  ocean: "#1a3d5c",
+  sea: "#1e4a5e",
+  strait: "#5c4a10",
+  canal: "#5c2e0a",
+  land_corridor: "#2a4a1a",
+};
+
+const RING_SIZES: Record<string, number> = {
+  ocean: 2.5,
+  sea: 1.5,
+  strait: 1.0,
+  canal: 1.0,
+  land_corridor: 0.8,
+};
+
 export default function Globe({
   arcs,
   paths,
@@ -71,11 +81,13 @@ export default function Globe({
   selectedCountry,
   onCountryClick,
   onCountryRightClick,
+  onRegionClick,
+  onRegionRightClick,
 }: GlobeProps) {
   const globeRef = useRef<any>(null);
   const [countries, setCountries] = useState<GeoFeature[]>([]);
   const [hoverCountry, setHoverCountry] = useThrottledState<GeoFeature | null>(null, 80);
-  const [regionLabels, setRegionLabels] = useState<RegionLabel[]>([]);
+  const [regions, setRegions] = useState<RegionData[]>([]);
 
   useEffect(() => {
     fetch("/api/countries-geojson")
@@ -95,21 +107,10 @@ export default function Globe({
       });
   }, []);
 
-  // Fetch region labels from backend
   useEffect(() => {
     fetch("/api/regions")
       .then((res) => res.json())
-      .then((regions: Array<{ id: number; name: string; type: string; center_lat: number; center_lng: number }>) => {
-        setRegionLabels(
-          regions.map((r) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            lat: r.center_lat,
-            lng: r.center_lng,
-          }))
-        );
-      })
+      .then((data: RegionData[]) => setRegions(data))
       .catch(console.error);
   }, []);
 
@@ -118,8 +119,7 @@ export default function Globe({
       globeRef.current.pointOfView({ altitude: 2.5 }, 0);
       const controls = globeRef.current.controls();
       if (controls) {
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.3;
+        controls.autoRotate = false;
       }
     }
   }, []);
@@ -136,10 +136,6 @@ export default function Globe({
         (feat.properties.ADM0_A3 as string);
       if (iso3 && iso3 !== "-99") {
         onCountryClick(iso3);
-        if (globeRef.current) {
-          const controls = globeRef.current.controls();
-          if (controls) controls.autoRotate = false;
-        }
       }
     },
     [onCountryClick]
@@ -214,6 +210,12 @@ export default function Globe({
     }));
   }, [paths, viewMode]);
 
+  // Region rings data (water regions only - no land corridors)
+  const ringsData = useMemo(
+    () => regions.filter((r) => r.type !== "land_corridor"),
+    [regions]
+  );
+
   return (
     <GlobeGL
       ref={globeRef}
@@ -272,13 +274,46 @@ export default function Globe({
         const path = d as { label: string };
         return `<div style="background:rgba(0,0,0,0.85);padding:6px 10px;border-radius:4px;font-size:12px;max-width:300px;">${path.label}</div>`;
       }}
+      // Region points (clickable ocean/sea/strait markers)
+      pointsData={ringsData}
+      pointLat={(d: object) => (d as RegionData).center_lat}
+      pointLng={(d: object) => (d as RegionData).center_lng}
+      pointColor={(d: object) => POINT_COLORS[(d as RegionData).type] || "#1a3355"}
+      pointRadius={(d: object) => RING_SIZES[(d as RegionData).type] || 1.0}
+      pointAltitude={0.01}
+      pointLabel={(d: object) => {
+        const r = d as RegionData;
+        return `<div style="background:rgba(0,0,0,0.85);padding:6px 10px;border-radius:4px;font-size:12px;">${r.name} <span style="color:#8899aa">(${r.type})</span><br/><span style="color:#66ccff;font-size:10px;">Click: show routes | Right-click: trade stats</span></div>`;
+      }}
+      onPointClick={(point: object) => {
+        const r = point as RegionData;
+        onRegionClick(r);
+      }}
+      onPointRightClick={(point: object, event: MouseEvent) => {
+        event.preventDefault();
+        const r = point as RegionData;
+        onRegionRightClick(r, event.clientX, event.clientY);
+      }}
+      // Animated rings for visual effect around region points
+      ringsData={ringsData}
+      ringLat={(d: object) => (d as RegionData).center_lat}
+      ringLng={(d: object) => (d as RegionData).center_lng}
+      ringColor={(d: object) => {
+        const colors: Record<string, string> = {
+          ocean: "#3c8cc8", sea: "#50aaDc", strait: "#ffc850", canal: "#ff8c3c", land_corridor: "#8cdc64"
+        };
+        return colors[(d as RegionData).type] || "#66aaff";
+      }}
+      ringMaxRadius={(d: object) => RING_SIZES[(d as RegionData).type] || 1.5}
+      ringPropagationSpeed={0.5}
+      ringRepeatPeriod={3000}
       // Region labels (ocean/sea/strait/canal names)
-      labelsData={regionLabels}
-      labelLat={(d: object) => (d as RegionLabel).lat}
-      labelLng={(d: object) => (d as RegionLabel).lng}
-      labelText={(d: object) => (d as RegionLabel).name}
-      labelSize={(d: object) => REGION_TYPE_SIZES[(d as RegionLabel).type] || 0.5}
-      labelColor={(d: object) => REGION_TYPE_COLORS[(d as RegionLabel).type] || "rgba(150,200,255,0.6)"}
+      labelsData={regions}
+      labelLat={(d: object) => (d as RegionData).center_lat}
+      labelLng={(d: object) => (d as RegionData).center_lng}
+      labelText={(d: object) => (d as RegionData).name}
+      labelSize={(d: object) => REGION_TYPE_SIZES[(d as RegionData).type] || 0.5}
+      labelColor={(d: object) => REGION_TYPE_COLORS[(d as RegionData).type] || "rgba(150,200,255,0.6)"}
       labelDotRadius={0}
       labelAltitude={0.025}
       labelResolution={3}

@@ -1,4 +1,4 @@
-import type { CommodityData } from "../types";
+import type { CommodityData, YearRange } from "../types";
 import type { ViewMode } from "../hooks/useTradeData";
 
 interface ControlPanelProps {
@@ -8,6 +8,10 @@ interface ControlPanelProps {
   selectedCountryName: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  yearRange: YearRange;
+  selectedYearStart: number;
+  selectedYearEnd: number;
+  onYearRangeChange: (start: number, end: number) => void;
 }
 
 export default function ControlPanel({
@@ -17,6 +21,10 @@ export default function ControlPanel({
   selectedCountryName,
   viewMode,
   onViewModeChange,
+  yearRange,
+  selectedYearStart,
+  selectedYearEnd,
+  onYearRangeChange,
 }: ControlPanelProps) {
   return (
     <div style={styles.panel}>
@@ -49,6 +57,40 @@ export default function ControlPanel({
           >
             Trade Routes
           </button>
+        </div>
+      </div>
+
+      <div style={styles.section}>
+        <label style={styles.label}>
+          Year Range: {selectedYearStart} – {selectedYearEnd}
+        </label>
+        <div style={styles.sliderContainer}>
+          <span style={styles.sliderLabel}>{yearRange.min_year}</span>
+          <div style={styles.sliderPair}>
+            <input
+              type="range"
+              min={yearRange.min_year}
+              max={yearRange.max_year}
+              value={selectedYearStart}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (v <= selectedYearEnd) onYearRangeChange(v, selectedYearEnd);
+              }}
+              style={styles.slider}
+            />
+            <input
+              type="range"
+              min={yearRange.min_year}
+              max={yearRange.max_year}
+              value={selectedYearEnd}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (v >= selectedYearStart) onYearRangeChange(selectedYearStart, v);
+              }}
+              style={styles.slider}
+            />
+          </div>
+          <span style={styles.sliderLabel}>{yearRange.max_year}</span>
         </div>
       </div>
 
@@ -90,6 +132,16 @@ export default function ControlPanel({
           ))
         )}
       </div>
+
+      <div style={styles.legend}>
+        <div style={styles.legendTitle}>Region Markers</div>
+        {REGION_LEGEND.map(([color, label]) => (
+          <div key={label} style={styles.legendItem}>
+            <span style={{ ...styles.legendRing, borderColor: color }} />
+            <span style={styles.legendText}>{label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -113,12 +165,21 @@ const ROUTE_LEGEND: [string, string][] = [
   ["#4488cc", "Low trade volume"],
 ];
 
+const REGION_LEGEND: [string, string][] = [
+  ["#3c8cc8", "Ocean (click for routes)"],
+  ["#50aaDc", "Sea"],
+  ["#ffc850", "Strait"],
+  ["#ff8c3c", "Canal"],
+];
+
 const styles: Record<string, React.CSSProperties> = {
   panel: {
     position: "absolute",
     top: 16,
     left: 16,
     width: 260,
+    maxHeight: "calc(100vh - 32px)",
+    overflowY: "auto",
     background: "rgba(10, 15, 30, 0.92)",
     borderRadius: 12,
     padding: 20,
@@ -161,6 +222,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     outline: "none",
   },
+  sliderContainer: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  sliderPair: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 10,
+  },
+  slider: {
+    width: "100%",
+    height: 4,
+    accentColor: "#00aaff",
+    cursor: "pointer",
+  },
+  sliderLabel: {
+    fontSize: 10,
+    color: "#6688aa",
+    minWidth: 28,
+    textAlign: "center" as const,
+  },
   legend: {
     marginTop: 16,
     paddingTop: 12,
@@ -184,6 +268,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "50%",
     marginRight: 8,
     flexShrink: 0,
+  },
+  legendRing: {
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    marginRight: 8,
+    flexShrink: 0,
+    border: "2px dashed",
+    background: "transparent",
   },
   legendText: {
     fontSize: 11,

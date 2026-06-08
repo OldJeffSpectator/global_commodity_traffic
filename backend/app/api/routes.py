@@ -36,10 +36,21 @@ def list_commodities(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/trade/year-range")
+def get_year_range(db: Session = Depends(get_db)):
+    """Return the min and max years available in the trade data."""
+    result = db.query(
+        func.min(BilateralTrade.year), func.max(BilateralTrade.year)
+    ).first()
+    return {"min_year": result[0] or 2000, "max_year": result[1] or 2023}
+
+
 @router.get("/trade/{iso3}")
 def get_trade_for_country(
     iso3: str,
     year: int | None = Query(None),
+    year_start: int | None = Query(None),
+    year_end: int | None = Query(None),
     commodity: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
@@ -55,6 +66,8 @@ def get_trade_for_country(
 
     if year:
         query = query.filter(BilateralTrade.year == year)
+    elif year_start and year_end:
+        query = query.filter(BilateralTrade.year >= year_start, BilateralTrade.year <= year_end)
     if commodity:
         query = query.filter(BilateralTrade.commodity_code == commodity)
 
@@ -105,6 +118,9 @@ def get_trade_for_country(
 def get_trade_summary(
     iso3: str,
     year: int | None = Query(None),
+    year_start: int | None = Query(None),
+    year_end: int | None = Query(None),
+    commodity: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Aggregated trade summary for a country."""
@@ -117,6 +133,10 @@ def get_trade_summary(
     )
     if year:
         base_query = base_query.filter(BilateralTrade.year == year)
+    elif year_start and year_end:
+        base_query = base_query.filter(BilateralTrade.year >= year_start, BilateralTrade.year <= year_end)
+    if commodity:
+        base_query = base_query.filter(BilateralTrade.commodity_code == commodity)
 
     # Totals
     totals = base_query.with_entities(
@@ -310,3 +330,178 @@ def list_regions(db: Session = Depends(get_db)):
         {"id": r.id, "name": r.name, "type": r.type, "center_lat": r.center_lat, "center_lng": r.center_lng}
         for r in regions
     ]
+
+
+@router.get("/region/{region_id}/routes")
+def get_routes_through_region(
+    region_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get all trade routes that pass through a given region."""
+    region = db.query(Region).filter_by(id=region_id).first()
+    if not region:
+        raise HTTPException(status_code=404, detail="Region not found")
+
+    segments = db.query(TradeRouteSegment).filter_by(region_id=region_id).all()
+    route_ids = list(set(seg.route_id for seg in segments))
+
+    routes = db.query(TradeRoute).filter(TradeRoute.id.in_(route_ids)).all() if route_ids else []
+
+    results = []
+    for route in routes:
+        origin = db.query(Country).filter_by(iso3=route.origin_iso3).first()
+        dest = db.query(Country).filter_by(iso3=route.destination_iso3).first()
+        results.append({
+            "origin_iso3": route.origin_iso3,
+            "origin_name": origin.name if origin else route.origin_iso3,
+            "destination_iso3": route.destination_iso3,
+            "destination_name": dest.name if dest else route.destination_iso3,
+            "total_cost": route.total_cost,
+            "transport_mode": route.transport_mode,
+            "path_coords": json.loads(route.path_coords_json) if route.path_coords_json else [],
+        })
+
+    return {
+        "region": {"id": region.id, "name": region.name, "type": region.type},
+        "route_count": len(results),
+        "routes": results,
+    }
+
+
+@router.get("/region/{region_id}/trade-stats")
+def get_trade_stats_through_region(
+    region_id: int,
+    year_start: int | None = Query(None),
+    year_end: int | None = Query(None),
+    commodity: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get aggregated trade data for all routes passing through a region."""
+    region = db.query(Region).filter_by(id=region_id).first()
+    if not region:
+        raise HTTPException(status_code=404, detail="Region not found")
+
+    segments = db.query(TradeRouteSegment).filter_by(region_id=region_id).all()
+    route_ids = list(set(seg.route_id for seg in segments))
+
+    if not route_ids:
+        return {
+            "region": {"id": region.id, "name": region.name, "type": region.type},
+            "route_count": 0,
+            "total_export_usd": 0,
+            "total_import_usd": 0,
+            "top_pairs": [],
+        }
+
+    routes = db.query(TradeRoute).filter(TradeRoute.id.in_(route_ids)).all()
+
+    # Collect all country pairs on these routes
+    pairs = [(r.origin_iso3, r.destination_iso3) for r in routes]
+
+    total_exports = 0.0
+    total_imports = 0.0
+    pair_values = []
+
+    for origin, dest in pairs:
+        trade_query = db.query(
+            func.sum(BilateralTrade.export_value_usd),
+            func.sum(BilateralTrade.import_value_usd),
+        ).filter(
+            ((BilateralTrade.reporter_iso3 == origin) & (BilateralTrade.partner_iso3 == dest))
+            | ((BilateralTrade.reporter_iso3 == dest) & (BilateralTrade.partner_iso3 == origin))
+        )
+
+        if year_start and year_end:
+            trade_query = trade_query.filter(
+                BilateralTrade.year >= year_start, BilateralTrade.year <= year_end
+            )
+        if commodity:
+            trade_query = trade_query.filter(BilateralTrade.commodity_code == commodity)
+
+        result = trade_query.first()
+        exp = result[0] or 0
+        imp = result[1] or 0
+        total_exports += exp
+        total_imports += imp
+        pair_values.append((origin, dest, exp + imp))
+
+    pair_values.sort(key=lambda x: x[2], reverse=True)
+    top_pairs = pair_values[:10]
+
+    country_names = {}
+    all_isos = set()
+    for o, d, _ in top_pairs:
+        all_isos.add(o)
+        all_isos.add(d)
+    for c in db.query(Country).filter(Country.iso3.in_(all_isos)).all():
+        country_names[c.iso3] = c.name
+
+    # Get top 3 commodities per pair with direction (origin→destination export value)
+    commodity_names = {c.hs2_code: c.name for c in db.query(Commodity).all()}
+    pair_details = []
+    for o, d, v in top_pairs:
+        # Get top commodities by total volume
+        comm_query = db.query(
+            BilateralTrade.commodity_code,
+            func.sum(BilateralTrade.export_value_usd).label("fwd"),
+        ).filter(
+            BilateralTrade.reporter_iso3 == o,
+            BilateralTrade.partner_iso3 == d,
+        )
+        if year_start and year_end:
+            comm_query = comm_query.filter(
+                BilateralTrade.year >= year_start, BilateralTrade.year <= year_end
+            )
+        if commodity:
+            comm_query = comm_query.filter(BilateralTrade.commodity_code == commodity)
+        fwd_comms = {row.commodity_code: (row.fwd or 0) for row in comm_query.group_by(BilateralTrade.commodity_code).all()}
+
+        # Reverse direction
+        rev_query = db.query(
+            BilateralTrade.commodity_code,
+            func.sum(BilateralTrade.export_value_usd).label("rev"),
+        ).filter(
+            BilateralTrade.reporter_iso3 == d,
+            BilateralTrade.partner_iso3 == o,
+        )
+        if year_start and year_end:
+            rev_query = rev_query.filter(
+                BilateralTrade.year >= year_start, BilateralTrade.year <= year_end
+            )
+        if commodity:
+            rev_query = rev_query.filter(BilateralTrade.commodity_code == commodity)
+        rev_comms = {row.commodity_code: (row.rev or 0) for row in rev_query.group_by(BilateralTrade.commodity_code).all()}
+
+        # Merge and rank by total
+        all_codes = set(fwd_comms.keys()) | set(rev_comms.keys())
+        ranked = []
+        for code in all_codes:
+            fwd_val = fwd_comms.get(code, 0)
+            rev_val = rev_comms.get(code, 0)
+            ranked.append((code, fwd_val, rev_val, fwd_val + rev_val))
+        ranked.sort(key=lambda x: x[3], reverse=True)
+
+        pair_details.append({
+            "origin_iso3": o,
+            "origin_name": country_names.get(o, o),
+            "destination_iso3": d,
+            "destination_name": country_names.get(d, d),
+            "total_value": v,
+            "top_commodities": [
+                {
+                    "code": code,
+                    "name": commodity_names.get(code, code),
+                    "fwd_value": fwd_val,
+                    "rev_value": rev_val,
+                }
+                for code, fwd_val, rev_val, _ in ranked[:3]
+            ],
+        })
+
+    return {
+        "region": {"id": region.id, "name": region.name, "type": region.type},
+        "route_count": len(routes),
+        "total_export_usd": total_exports,
+        "total_import_usd": total_imports,
+        "top_pairs": pair_details,
+    }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { TradeSummary, CommodityData } from "../types";
-import { getTradeSummary } from "../services/api";
+import type { TradeSummary, CommodityData, TransitTradeStats } from "../types";
+import { getTradeSummary, getTransitTradeStats } from "../services/api";
 
 interface TradeInfoPanelProps {
   iso3: string;
@@ -20,16 +20,20 @@ export default function TradeInfoPanel({
   onClose,
 }: TradeInfoPanelProps) {
   const [summary, setSummary] = useState<TradeSummary | null>(null);
+  const [transit, setTransit] = useState<TransitTradeStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    getTradeSummary(iso3, {
-      yearStart,
-      yearEnd,
-      commodity: commodityFilter || undefined,
-    })
-      .then(setSummary)
+    const opts = { yearStart, yearEnd, commodity: commodityFilter || undefined };
+    Promise.all([
+      getTradeSummary(iso3, opts),
+      getTransitTradeStats(iso3, opts).catch(() => null),
+    ])
+      .then(([summaryData, transitData]) => {
+        setSummary(summaryData);
+        setTransit(transitData);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [iso3, commodityFilter, yearStart, yearEnd]);
@@ -102,6 +106,35 @@ export default function TradeInfoPanel({
               </span>
             </div>
           ))}
+
+          {/* Transit Trade Section */}
+          {transit && transit.transit_route_count > 0 && (
+            <>
+              <div style={styles.sectionTitle}>Transit Trade</div>
+              <div style={styles.transitMeta}>
+                {transit.transit_route_count} routes transit through this country/region
+                {transit.total_transit_value > 0 && (
+                  <span> — Total: ${formatValue(transit.total_transit_value)}</span>
+                )}
+              </div>
+              {transit.top_pairs.map((pair, idx) => (
+                <div key={idx} style={styles.transitPair}>
+                  <div style={styles.transitPairHeader}>
+                    {pair.origin_name} → {pair.destination_name}
+                    <span style={styles.transitPairValue}>
+                      ${formatValue(pair.total_value)}
+                    </span>
+                  </div>
+                  {pair.top_commodities.map((comm, ci) => (
+                    <div key={ci} style={styles.transitComm}>
+                      <span style={styles.transitCommName}>{comm.name}</span>
+                      <span style={styles.transitCommVal}>${formatValue(comm.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
         </div>
       ) : (
         <div style={styles.loading}>No data available</div>
@@ -249,5 +282,42 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e0e8f0",
     fontWeight: 500,
     fontSize: 11,
+  },
+  transitMeta: {
+    fontSize: 11,
+    color: "#8899aa",
+    marginBottom: 8,
+  },
+  transitPair: {
+    padding: "6px 8px",
+    marginBottom: 6,
+    background: "rgba(40, 50, 80, 0.4)",
+    borderRadius: 6,
+  },
+  transitPairHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    fontSize: 12,
+    color: "#c0d0e0",
+    fontWeight: 500,
+    marginBottom: 4,
+  },
+  transitPairValue: {
+    color: "#60a5fa",
+    fontWeight: 600,
+    fontSize: 11,
+  },
+  transitComm: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "2px 0 2px 8px",
+    fontSize: 11,
+  },
+  transitCommName: {
+    color: "#8899aa",
+  },
+  transitCommVal: {
+    color: "#a0b0c0",
+    fontWeight: 500,
   },
 };

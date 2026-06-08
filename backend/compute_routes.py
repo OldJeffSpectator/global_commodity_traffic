@@ -15,7 +15,7 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from app.db.database import engine, Base, SessionLocal
-from app.db.models import Country, BilateralTrade, Region, TradeRoute, TradeRouteSegment
+from app.db.models import Country, BilateralTrade, Region, TradeRoute, TradeRouteSegment, TradeRouteTransit
 from app.services.route_engine import build_graph
 from sqlalchemy import func
 
@@ -134,9 +134,13 @@ def main():
     print(f"[Graph] Total nodes: {len(graph.nodes)}, Country ports: {len(graph.country_port_nodes)}")
 
     # Clear existing routes
+    db.query(TradeRouteTransit).delete()
     db.query(TradeRouteSegment).delete()
     db.query(TradeRoute).delete()
     db.commit()
+
+    # Build reverse lookup: node_id -> iso3
+    node_to_iso3 = {v: k for k, v in graph.country_port_nodes.items()}
 
     # Compute routes
     print(f"\n[Routing] Computing {len(unique_pairs)} routes via Dijkstra...")
@@ -180,6 +184,19 @@ def main():
                 sequence_order=seq,
                 region_id=region_id,
             ))
+
+        # Record transit countries (intermediate nodes that are country ports, excluding origin/destination)
+        transit_seq = 0
+        for node_id in path[1:-1]:  # Skip first (origin) and last (destination)
+            if node_id in node_to_iso3:
+                transit_iso = node_to_iso3[node_id]
+                if transit_iso != iso_a and transit_iso != iso_b:
+                    db.add(TradeRouteTransit(
+                        route_id=route.id,
+                        transit_iso3=transit_iso,
+                        sequence_order=transit_seq,
+                    ))
+                    transit_seq += 1
 
         computed += 1
         if (i + 1) % 50 == 0:

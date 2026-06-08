@@ -7,6 +7,8 @@ import type {
   RegionRoutesResponse,
   RegionTradeStats,
   YearRange,
+  TransitTradeStats,
+  TransitRoutesResponse,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -75,5 +77,21 @@ export async function getRegionTradeStats(
 
 export async function getYearRange(): Promise<YearRange> {
   return fetchJSON<YearRange>("/trade/year-range");
+}
+
+export async function getTransitTradeStats(
+  iso3: string,
+  options?: { yearStart?: number; yearEnd?: number; commodity?: string }
+): Promise<TransitTradeStats> {
+  const params = new URLSearchParams();
+  if (options?.yearStart) params.set("year_start", String(options.yearStart));
+  if (options?.yearEnd) params.set("year_end", String(options.yearEnd));
+  if (options?.commodity) params.set("commodity", options.commodity);
+  const qs = params.toString();
+  return fetchJSON<TransitTradeStats>(`/country/${iso3}/transit${qs ? `?${qs}` : ""}`);
+}
+
+export async function getTransitRoutes(iso3: string): Promise<TransitRoutesResponse> {
+  return fetchJSON<TransitRoutesResponse>(`/country/${iso3}/transit-routes`);
 }
 

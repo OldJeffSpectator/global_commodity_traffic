@@ -3,6 +3,7 @@ from app.db.database import Base
 
 
 class Country(Base):
+    """Country or separate customs territory (e.g. Taiwan, Hong Kong)."""
     __tablename__ = "countries"
 
     iso3 = Column(String(3), primary_key=True)
@@ -84,3 +85,12 @@ class TradeRouteSegment(Base):
     sequence_order = Column(Integer, nullable=False)
     region_id = Column(Integer, ForeignKey("regions.id"), nullable=False)
     segment_cost = Column(Float, default=0.0)
+
+
+class TradeRouteTransit(Base):
+    __tablename__ = "trade_route_transits"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    route_id = Column(Integer, ForeignKey("trade_routes.id"), nullable=False)
+    transit_iso3 = Column(String(3), ForeignKey("countries.iso3"), nullable=False)
+    sequence_order = Column(Integer, nullable=False)

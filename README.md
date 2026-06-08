@@ -1,6 +1,6 @@
 # Global Commodity Traffic
 
-A Google Earth-like 3D globe visualization of international commodity trade flows. Click a country to see trade connections — choose between animated parabola arcs or realistic shipping/land routes through named oceans, straits, and canals.
+A Google Earth-like 3D globe visualization of international commodity trade flows. Click a country/region to see trade connections — choose between animated parabola arcs or realistic shipping/land routes through named oceans, straits, and canals. Uses "country/region" terminology to accommodate separate customs territories (e.g. Taiwan, Hong Kong) that report trade data independently.
 
 ## Quick Start
 
@@ -67,7 +67,7 @@ cd backend
 .venv\Scripts\python compute_routes.py
 ```
 
-This builds a strategic maritime + land graph, runs Dijkstra for all country pairs (~564 routes in <1s), and stores results in the DB.
+This builds a strategic maritime + land graph, runs Dijkstra for all country/region pairs (~564 routes in <1s), and stores results in the DB.
 
 ### Live Trade Data (Optional)
 
@@ -88,11 +88,11 @@ export COMTRADE_API_KEY=your_key_here
 ## Features
 
 ### V1 — Trade Flow Visualization
-- **3D Globe** with country polygons (Natural Earth 110m)
-- **Click a country** to show trade arcs to all partners
+- **3D Globe** with country/region polygons (Natural Earth 110m)
+- **Click a country/region** to show trade arcs to all partners
 - **Arc opacity/thickness** scaled by trade value (major flows stand out)
-- **Hover** for country name tooltip and highlight glow
-- **Right-click** for context menu → "Show Trade Info"
+- **Hover** for country/region name tooltip and highlight glow
+- **Right-click** to open Trade Info panel
 - **Trade Info Panel** showing exports, imports, top partners, breakdown by commodity
 - **Commodity filter** to isolate specific commodity types
 
@@ -101,7 +101,9 @@ export COMTRADE_API_KEY=your_key_here
 - **Trade Routes** render animated dashed paths following actual shipping lanes through strategic maritime waypoints
 - **Region labels** on the globe surface — ocean, sea, strait, canal, and railway corridor names always visible
 - **Route hover labels** show partner name + full region sequence (e.g., "South China Sea → Strait of Malacca → Indian Ocean → Suez Canal")
-- **Dijkstra routing** on a 226-node graph (54 maritime waypoints + 172 country ports + land borders + railway corridors)
+- **Dijkstra routing** on a 226-node graph (54 maritime waypoints + 172 country/region ports + land borders + railway corridors)
+- **Landlocked countries** correctly routed only via land borders (no phantom sea access)
+- **Transit trade display** — countries on overland routes show trade flowing through them
 - **Color-coded by trade volume** — high (cyan), medium (blue), low (dark blue)
 - **Throttled hover** for smooth interaction without animation restarts
 
@@ -131,14 +133,16 @@ export COMTRADE_API_KEY=your_key_here
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/countries | List all countries with centroids |
+| GET | /api/countries | List all countries/regions with centroids |
 | GET | /api/commodities | List tracked commodities |
-| GET | /api/trade/{iso3} | Bilateral trades for a country |
+| GET | /api/trade/{iso3} | Bilateral trades for a country/region |
 | GET | /api/trade/{iso3}/summary | Aggregated trade summary |
-| GET | /api/route/{origin}/{dest} | Computed route between two countries |
-| GET | /api/routes/{iso3} | All routes for a country (visualization) |
+| GET | /api/route/{origin}/{dest} | Computed route between two countries/regions |
+| GET | /api/routes/{iso3} | All routes for a country/region (visualization) |
+| GET | /api/country/{iso3}/transit | Trade stats for routes transiting through |
+| GET | /api/country/{iso3}/transit-routes | Route paths for transit display |
 | GET | /api/regions | List all named geographic regions |
-| GET | /api/countries-geojson | Country polygons GeoJSON |
+| GET | /api/countries-geojson | Country/region polygons GeoJSON |
 | POST | /api/trade/sync | Trigger data sync from UN Comtrade |
 | GET | /api/trade/sync/status | Check sync progress |
 

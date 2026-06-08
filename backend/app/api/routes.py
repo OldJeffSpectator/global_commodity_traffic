@@ -6,7 +6,7 @@ from sqlalchemy import func
 from app.db.database import get_db
 from app.db.models import (
     Country, Commodity, BilateralTrade, SyncStatus,
-    Region, TradeRoute, TradeRouteSegment,
+    Region, TradeRoute, TradeRouteSegment, TradeRouteTransit,
 )
 from app.services.trade_fetcher import start_sync_background, get_current_sync_id
 
@@ -57,7 +57,7 @@ def get_trade_for_country(
     """Get all bilateral trade records where this country is reporter or partner."""
     country = db.query(Country).filter_by(iso3=iso3.upper()).first()
     if not country:
-        raise HTTPException(status_code=404, detail="Country not found")
+        raise HTTPException(status_code=404, detail="Country/region not found")
 
     query = db.query(BilateralTrade).filter(
         (BilateralTrade.reporter_iso3 == iso3.upper())
@@ -126,7 +126,7 @@ def get_trade_summary(
     """Aggregated trade summary for a country."""
     country = db.query(Country).filter_by(iso3=iso3.upper()).first()
     if not country:
-        raise HTTPException(status_code=404, detail="Country not found")
+        raise HTTPException(status_code=404, detail="Country/region not found")
 
     base_query = db.query(BilateralTrade).filter(
         BilateralTrade.reporter_iso3 == iso3.upper()
@@ -505,3 +505,130 @@ def get_trade_stats_through_region(
         "total_import_usd": total_imports,
         "top_pairs": pair_details,
     }
+
+
+@router.get("/country/{iso3}/transit")
+def get_transit_through_country(
+    iso3: str,
+    year_start: int | None = Query(None),
+    year_end: int | None = Query(None),
+    commodity: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get routes and trade stats for routes that transit through a country."""
+    iso = iso3.upper()
+    country = db.query(Country).filter_by(iso3=iso).first()
+    if not country:
+        raise HTTPException(status_code=404, detail="Country/region not found")
+
+    transits = db.query(TradeRouteTransit).filter_by(transit_iso3=iso).all()
+    route_ids = list(set(t.route_id for t in transits))
+
+    if not route_ids:
+        return {
+            "country": {"iso3": iso, "name": country.name},
+            "transit_route_count": 0,
+            "total_transit_value": 0,
+            "top_pairs": [],
+        }
+
+    routes = db.query(TradeRoute).filter(TradeRoute.id.in_(route_ids)).all()
+
+    # Get trade values for each route pair
+    commodity_names = {c.hs2_code: c.name for c in db.query(Commodity).all()}
+    pair_values = []
+    for route in routes:
+        trade_query = db.query(
+            func.sum(BilateralTrade.export_value_usd + BilateralTrade.import_value_usd),
+        ).filter(
+            ((BilateralTrade.reporter_iso3 == route.origin_iso3) & (BilateralTrade.partner_iso3 == route.destination_iso3))
+            | ((BilateralTrade.reporter_iso3 == route.destination_iso3) & (BilateralTrade.partner_iso3 == route.origin_iso3))
+        )
+        if year_start and year_end:
+            trade_query = trade_query.filter(
+                BilateralTrade.year >= year_start, BilateralTrade.year <= year_end
+            )
+        if commodity:
+            trade_query = trade_query.filter(BilateralTrade.commodity_code == commodity)
+        total = trade_query.scalar() or 0
+        pair_values.append((route.origin_iso3, route.destination_iso3, total))
+
+    pair_values.sort(key=lambda x: x[2], reverse=True)
+    total_transit_value = sum(v for _, _, v in pair_values)
+
+    # Top 10 pairs with top 3 commodities each
+    country_names = {}
+    all_isos = set()
+    for o, d, _ in pair_values[:10]:
+        all_isos.add(o)
+        all_isos.add(d)
+    for c in db.query(Country).filter(Country.iso3.in_(all_isos)).all():
+        country_names[c.iso3] = c.name
+
+    top_pairs = []
+    for o, d, v in pair_values[:10]:
+        # Top 3 commodities for this pair
+        comm_query = db.query(
+            BilateralTrade.commodity_code,
+            func.sum(BilateralTrade.export_value_usd + BilateralTrade.import_value_usd).label("total"),
+        ).filter(
+            ((BilateralTrade.reporter_iso3 == o) & (BilateralTrade.partner_iso3 == d))
+            | ((BilateralTrade.reporter_iso3 == d) & (BilateralTrade.partner_iso3 == o))
+        )
+        if year_start and year_end:
+            comm_query = comm_query.filter(BilateralTrade.year >= year_start, BilateralTrade.year <= year_end)
+        if commodity:
+            comm_query = comm_query.filter(BilateralTrade.commodity_code == commodity)
+        top_comms = (
+            comm_query.group_by(BilateralTrade.commodity_code)
+            .order_by(func.sum(BilateralTrade.export_value_usd + BilateralTrade.import_value_usd).desc())
+            .limit(3)
+            .all()
+        )
+
+        top_pairs.append({
+            "origin_iso3": o,
+            "origin_name": country_names.get(o, o),
+            "destination_iso3": d,
+            "destination_name": country_names.get(d, d),
+            "total_value": v,
+            "top_commodities": [
+                {"code": row.commodity_code, "name": commodity_names.get(row.commodity_code, row.commodity_code), "value": row.total or 0}
+                for row in top_comms
+            ],
+        })
+
+    return {
+        "country": {"iso3": iso, "name": country.name},
+        "transit_route_count": len(route_ids),
+        "total_transit_value": total_transit_value,
+        "top_pairs": top_pairs,
+    }
+
+
+@router.get("/country/{iso3}/transit-routes")
+def get_transit_route_paths(iso3: str, db: Session = Depends(get_db)):
+    """Get route path coordinates for all routes transiting through a country."""
+    iso = iso3.upper()
+    transits = db.query(TradeRouteTransit).filter_by(transit_iso3=iso).all()
+    route_ids = list(set(t.route_id for t in transits))
+
+    if not route_ids:
+        return {"country": iso, "routes": []}
+
+    routes = db.query(TradeRoute).filter(TradeRoute.id.in_(route_ids)).all()
+    results = []
+    for route in routes:
+        origin = db.query(Country).filter_by(iso3=route.origin_iso3).first()
+        dest = db.query(Country).filter_by(iso3=route.destination_iso3).first()
+        results.append({
+            "origin_iso3": route.origin_iso3,
+            "origin_name": origin.name if origin else route.origin_iso3,
+            "destination_iso3": route.destination_iso3,
+            "destination_name": dest.name if dest else route.destination_iso3,
+            "total_cost": route.total_cost,
+            "transport_mode": route.transport_mode,
+            "path_coords": json.loads(route.path_coords_json) if route.path_coords_json else [],
+        })
+
+    return {"country": iso, "routes": results}

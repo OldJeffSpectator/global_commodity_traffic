@@ -48,6 +48,14 @@ RAILWAY_CORRIDORS = {
     ("USA", "MEX"): "NAFTA Corridor",
 }
 
+LANDLOCKED_COUNTRIES = {
+    "AFG", "AND", "ARM", "AUT", "AZE", "BLR", "BTN", "BIH", "BWA",
+    "BFA", "BDI", "CAF", "TCD", "CZE", "ETH", "HUN", "KAZ", "KGZ",
+    "LAO", "LSO", "LIE", "LUX", "MKD", "MWI", "MLI", "MDA", "MNG",
+    "NPL", "NER", "PRY", "RWA", "SRB", "SVK", "SSD", "SWZ", "CHE",
+    "TJK", "TKM", "UGA", "UZB", "ZMB", "ZWE", "BOL",
+}
+
 # Strategic maritime waypoints along major shipping lanes
 # (id, lat, lng, name)
 MARITIME_WAYPOINTS = [
@@ -233,26 +241,34 @@ class TradeRouteGraph:
         return best_id
 
     def add_country_ports(self, countries: list[dict]):
-        """Add port node for each country, connected to nearest maritime waypoint."""
+        """Add port node for each country, connected to nearest maritime waypoint.
+        Landlocked countries get a node but no maritime edge — they rely on land borders."""
+        coastal = 0
+        landlocked = 0
         for country in countries:
             iso3 = country["iso3"]
             lat = country["centroid_lat"]
             lng = country["centroid_lng"]
 
-            nearest = self._find_nearest_waypoint(lat, lng)
-            if nearest is None:
-                continue
-
             port_id = self._new_node_id()
             self._add_node(port_id, lat, lng)
             self.country_port_nodes[iso3] = port_id
+
+            if iso3 in LANDLOCKED_COUNTRIES:
+                landlocked += 1
+                continue
+
+            nearest = self._find_nearest_waypoint(lat, lng)
+            if nearest is None:
+                continue
 
             nlat, nlng = self.nodes[nearest]
             dist_km = haversine_km(lat, lng, nlat, nlng)
             cost = dist_km * COST_PORT_ACCESS_PER_KM
             self._add_edge(port_id, nearest, cost)
+            coastal += 1
 
-        print(f"[RouteEngine] Added {len(self.country_port_nodes)} country port nodes")
+        print(f"[RouteEngine] Added {len(self.country_port_nodes)} country port nodes ({coastal} coastal, {landlocked} landlocked)")
 
     def add_land_borders(self):
         """Add land border edges between adjacent countries."""

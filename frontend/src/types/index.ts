@@ -139,3 +139,22 @@ export interface YearRange {
   min_year: number;
   max_year: number;
 }
+
+export interface TransitTradeStats {
+  country: { iso3: string; name: string };
+  transit_route_count: number;
+  total_transit_value: number;
+  top_pairs: Array<{
+    origin_iso3: string;
+    origin_name: string;
+    destination_iso3: string;
+    destination_name: string;
+    total_value: number;
+    top_commodities: Array<{ code: string; name: string; value: number }>;
+  }>;
+}
+
+export interface TransitRoutesResponse {
+  country: string;
+  routes: RegionRouteData[];
+}

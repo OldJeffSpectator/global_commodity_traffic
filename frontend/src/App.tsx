@@ -5,7 +5,7 @@ import TradeInfoPanel from "./components/TradeInfoPanel";
 import RegionInfoPanel from "./components/RegionInfoPanel";
 import { useTradeData } from "./hooks/useTradeData";
 import type { RegionData, PathData } from "./types";
-import { getRegionRoutes } from "./services/api";
+import { getRegionRoutes, getTransitRoutes } from "./services/api";
 
 export default function App() {
   const {
@@ -38,9 +38,30 @@ export default function App() {
   const [regionPaths, setRegionPaths] = useState<PathData[]>([]);
 
   const handleCountryClick = useCallback(
-    (iso3: string | null) => {
+    async (iso3: string | null) => {
       setRegionPaths([]);
       selectCountry(iso3);
+      if (iso3) {
+        try {
+          const resp = await getTransitRoutes(iso3);
+          if (resp.routes && resp.routes.length > 0) {
+            const transitPaths: PathData[] = resp.routes
+              .filter((r) => r.path_coords && r.path_coords.length >= 2)
+              .map((r, i) => ({
+                points: r.path_coords.map(([lat, lng]) => ({ lat, lng })),
+                color: "#ff9900",
+                opacity: Math.max(0.3, 0.7 - i * 0.03),
+                stroke: Math.max(0.5, 1.5 - i * 0.05),
+                label: `Transit: ${r.origin_name} → ${r.destination_name}`,
+                partner_iso3: r.destination_iso3,
+                value: 0,
+              }));
+            setRegionPaths(transitPaths);
+          }
+        } catch {
+          // Country has no transit routes — that's fine
+        }
+      }
     },
     [selectCountry]
   );
@@ -88,15 +109,17 @@ export default function App() {
   const selectedName =
     countries.find((c) => c.iso3 === selectedCountry)?.name || null;
 
-  // Merge paths: show region routes if active, otherwise country paths
-  const activePaths = regionPaths.length > 0 ? regionPaths : paths;
+  // Merge paths: combine country trade paths with transit/region routes
+  const activePaths = regionPaths.length > 0
+    ? [...paths, ...regionPaths]
+    : paths;
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
       <Globe
         arcs={arcs}
         paths={activePaths}
-        viewMode={regionPaths.length > 0 ? "routes" : viewMode}
+        viewMode={regionPaths.length > 0 && paths.length === 0 ? "routes" : viewMode}
         selectedCountry={selectedCountry}
         onCountryClick={handleCountryClick}
         onCountryRightClick={handleCountryRightClick}

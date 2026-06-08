@@ -198,10 +198,14 @@ export default function Globe({
     [arcs, viewMode]
   );
 
-  // Memoize paths data so hover doesn't restart animations
+  // Memoize paths data — always show transit paths (orange), only show
+  // regular route paths in "routes" mode
   const pathsDataStable = useMemo(() => {
-    if (viewMode !== "routes") return [];
-    return paths.map((p) => ({
+    const filtered = viewMode === "routes"
+      ? paths
+      : paths.filter((p) => p.color === "#ff9900" || p.color === "#ffcc00");
+    if (filtered.length === 0) return [];
+    return filtered.map((p) => ({
       coords: p.points.map((pt) => [pt.lat, pt.lng]),
       color: p.color,
       opacity: p.opacity,

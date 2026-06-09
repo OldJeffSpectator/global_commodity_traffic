@@ -12,11 +12,32 @@ from typing import Optional
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 
 COST_OCEAN_PER_KM = 0.5
-COST_STRAIT_PER_KM = 0.6
-COST_CANAL_PER_KM = 1.5
 COST_LAND_BORDER_PER_KM = 5.0
 COST_RAILWAY_PER_KM = 2.0
 COST_PORT_ACCESS_PER_KM = 1.0
+
+# Per-waypoint cost multipliers (applied to edges touching these nodes)
+# Format: waypoint_id -> cost_per_km for edges involving this waypoint
+# Higher = less preferred route. Base ocean rate is 0.5/km.
+WAYPOINT_COST_OVERRIDES: dict[int, float] = {
+    # Canals — tolls + capacity but save significant time vs detour
+    10: 1.5,   # Suez Canal (tolls ~$700K but saves 7-10 days vs Cape)
+    37: 2.0,   # Panama Canal (tolls ~$400K, lock delays, Panamax size limits)
+    # High-risk/congested straits
+    17: 0.9,   # Strait of Hormuz (geopolitical risk but heavily used — no alternative)
+    12: 0.9,   # Bab-el-Mandeb (piracy risk, Yemen conflict, but major oil route)
+    52: 3.0,   # Bering Strait (ice, seasonal, barely any commercial traffic)
+    # Moderate-congestion straits
+    19: 0.65,  # Strait of Malacca East (congested but essential, 90K ships/year)
+    20: 0.65,  # Strait of Malacca West
+    54: 0.7,   # Lombok Strait (Malacca bypass for deep-draft, slightly longer)
+    6:  0.55,  # Strait of Gibraltar (high traffic but well-managed, minimal delay)
+    # Dangerous open water
+    40: 1.8,   # Cape Horn (extreme weather, last resort)
+    51: 2.0,   # Barents Sea (ice, Arctic, seasonal only)
+    # Long detour alternatives
+    41: 0.55,  # Cape of Good Hope (long but no tolls — viable for bulk)
+}
 
 LAND_BORDERS = [
     ("USA", "CAN"), ("USA", "MEX"), ("CHN", "RUS"), ("CHN", "KAZ"),
@@ -220,7 +241,11 @@ class TradeRouteGraph:
                 lat_a, lng_a = self.nodes[id_a]
                 lat_b, lng_b = self.nodes[id_b]
                 dist_km = haversine_km(lat_a, lng_a, lat_b, lng_b)
-                cost = dist_km * COST_OCEAN_PER_KM
+                # Use the higher cost if either endpoint has an override
+                cost_a = WAYPOINT_COST_OVERRIDES.get(id_a, COST_OCEAN_PER_KM)
+                cost_b = WAYPOINT_COST_OVERRIDES.get(id_b, COST_OCEAN_PER_KM)
+                cost_per_km = max(cost_a, cost_b)
+                cost = dist_km * cost_per_km
                 self._add_edge(id_a, id_b, cost)
                 edges_added += 1
 

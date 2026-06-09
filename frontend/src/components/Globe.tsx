@@ -198,14 +198,11 @@ export default function Globe({
     [arcs, viewMode]
   );
 
-  // Memoize paths data — always show transit paths (orange), only show
-  // regular route paths in "routes" mode
+  // Paths only render in "routes" mode
   const pathsDataStable = useMemo(() => {
-    const filtered = viewMode === "routes"
-      ? paths
-      : paths.filter((p) => p.color === "#ff9900" || p.color === "#ffcc00");
-    if (filtered.length === 0) return [];
-    return filtered.map((p) => ({
+    if (viewMode !== "routes") return [];
+    if (paths.length === 0) return [];
+    return paths.map((p) => ({
       coords: p.points.map((pt) => [pt.lat, pt.lng]),
       color: p.color,
       opacity: p.opacity,

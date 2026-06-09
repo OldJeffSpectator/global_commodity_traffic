@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, UniqueConstraint, Text
+from sqlalchemy import Column, String, Integer, Float, ForeignKey, UniqueConstraint, Text, Index
 from app.db.database import Base
 
 
@@ -38,6 +38,11 @@ class BilateralTrade(Base):
             "reporter_iso3", "partner_iso3", "commodity_code", "year",
             name="uq_trade_record"
         ),
+        Index("ix_trade_reporter", "reporter_iso3"),
+        Index("ix_trade_partner", "partner_iso3"),
+        Index("ix_trade_year", "year"),
+        Index("ix_trade_reporter_partner", "reporter_iso3", "partner_iso3"),
+        Index("ix_trade_commodity", "commodity_code"),
     )
 
 
@@ -74,6 +79,8 @@ class TradeRoute(Base):
 
     __table_args__ = (
         UniqueConstraint("origin_iso3", "destination_iso3", name="uq_trade_route"),
+        Index("ix_route_origin", "origin_iso3"),
+        Index("ix_route_destination", "destination_iso3"),
     )
 
 
@@ -86,6 +93,11 @@ class TradeRouteSegment(Base):
     region_id = Column(Integer, ForeignKey("regions.id"), nullable=False)
     segment_cost = Column(Float, default=0.0)
 
+    __table_args__ = (
+        Index("ix_segment_route_id", "route_id"),
+        Index("ix_segment_region_id", "region_id"),
+    )
+
 
 class TradeRouteTransit(Base):
     __tablename__ = "trade_route_transits"
@@ -94,3 +106,8 @@ class TradeRouteTransit(Base):
     route_id = Column(Integer, ForeignKey("trade_routes.id"), nullable=False)
     transit_iso3 = Column(String(3), ForeignKey("countries.iso3"), nullable=False)
     sequence_order = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index("ix_transit_route_id", "route_id"),
+        Index("ix_transit_iso3", "transit_iso3"),
+    )

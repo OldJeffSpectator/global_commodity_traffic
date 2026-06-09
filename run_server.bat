@@ -43,15 +43,22 @@ if not exist "backend\data\trade.db" (
     cd ..
 )
 
+REM Clear proxy for backend
+set HTTP_PROXY=
+set HTTPS_PROXY=
+set http_proxy=
+set https_proxy=
+set NO_PROXY=*
+
 echo.
 echo [Starting] Backend server on port 16667...
-start "GCT Backend" cmd /c "set HTTP_PROXY= && set HTTPS_PROXY= && set http_proxy= && set https_proxy= && set NO_PROXY=* && cd backend && .venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 16667"
+start "GCT_Backend" /min cmd /c "cd /d %~dp0backend && .venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 16667"
 
 REM Wait for backend to start
 timeout /t 3 /nobreak > nul
 
 echo [Starting] Frontend dev server on port 16668...
-start "GCT Frontend" cmd /c "set PATH=C:\Program Files\nodejs;%PATH% && cd frontend && npm run dev"
+start "GCT_Frontend" /min cmd /c "set PATH=C:\Program Files\nodejs;%PATH% && cd /d %~dp0frontend && npm run dev"
 
 echo.
 echo ============================================
@@ -60,7 +67,12 @@ echo  Press any key to stop both servers...
 echo ============================================
 pause > nul
 
-REM Kill the servers
-taskkill /fi "WINDOWTITLE eq GCT Backend" /f > nul 2>&1
-taskkill /fi "WINDOWTITLE eq GCT Frontend" /f > nul 2>&1
+REM Kill servers by port - finds the exact PID listening on each port
+echo Stopping servers...
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":16667.*LISTENING"') do (
+    taskkill /pid %%a /f /t > nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":16668.*LISTENING"') do (
+    taskkill /pid %%a /f /t > nul 2>&1
+)
 echo Servers stopped.

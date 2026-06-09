@@ -54,15 +54,22 @@ def get_trade_for_country(
     commodity: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    """Get all bilateral trade records where this country is reporter or partner."""
-    country = db.query(Country).filter_by(iso3=iso3.upper()).first()
+    """Get bilateral trade records for a country/region.
+    Uses own reports if available, otherwise partner-reported data (flipped)."""
+    iso = iso3.upper()
+    country = db.query(Country).filter_by(iso3=iso).first()
     if not country:
         raise HTTPException(status_code=404, detail="Country/region not found")
 
-    query = db.query(BilateralTrade).filter(
-        (BilateralTrade.reporter_iso3 == iso3.upper())
-        | (BilateralTrade.partner_iso3 == iso3.upper())
-    )
+    # Check if this country reports its own data
+    has_own_reports = db.query(BilateralTrade).filter(
+        BilateralTrade.reporter_iso3 == iso
+    ).limit(1).first() is not None
+
+    if has_own_reports:
+        query = db.query(BilateralTrade).filter(BilateralTrade.reporter_iso3 == iso)
+    else:
+        query = db.query(BilateralTrade).filter(BilateralTrade.partner_iso3 == iso)
 
     if year:
         query = query.filter(BilateralTrade.year == year)
@@ -86,9 +93,16 @@ def get_trade_for_country(
 
     results = []
     for t in trades:
-        partner_iso = (
-            t.partner_iso3 if t.reporter_iso3 == iso3.upper() else t.reporter_iso3
-        )
+        if has_own_reports:
+            partner_iso = t.partner_iso3
+            exp = t.export_value_usd or 0
+            imp = t.import_value_usd or 0
+        else:
+            # Flip perspective: the reporter is our trade partner
+            partner_iso = t.reporter_iso3
+            exp = t.import_value_usd or 0  # Their import from us = our export
+            imp = t.export_value_usd or 0  # Their export to us = our import
+
         partner_info = countries_map.get(partner_iso, {})
 
         results.append({
@@ -98,9 +112,9 @@ def get_trade_for_country(
             "partner_lng": partner_info.get("lng", 0),
             "commodity_code": t.commodity_code,
             "year": t.year,
-            "export_value_usd": t.export_value_usd,
-            "import_value_usd": t.import_value_usd,
-            "weight_kg": t.weight_kg,
+            "export_value_usd": exp,
+            "import_value_usd": imp,
+            "weight_kg": t.weight_kg or 0,
         })
 
     return {
@@ -128,9 +142,24 @@ def get_trade_summary(
     if not country:
         raise HTTPException(status_code=404, detail="Country/region not found")
 
-    base_query = db.query(BilateralTrade).filter(
-        BilateralTrade.reporter_iso3 == iso3.upper()
-    )
+    iso = iso3.upper()
+
+    # Check if this country reports its own data
+    has_own_reports = db.query(BilateralTrade).filter(
+        BilateralTrade.reporter_iso3 == iso
+    ).limit(1).first() is not None
+
+    if has_own_reports:
+        # Use the country's own reported data
+        base_query = db.query(BilateralTrade).filter(
+            BilateralTrade.reporter_iso3 == iso
+        )
+    else:
+        # Country doesn't report — use data reported by partners (flipped perspective)
+        base_query = db.query(BilateralTrade).filter(
+            BilateralTrade.partner_iso3 == iso
+        )
+
     if year:
         base_query = base_query.filter(BilateralTrade.year == year)
     elif year_start and year_end:
@@ -138,43 +167,36 @@ def get_trade_summary(
     if commodity:
         base_query = base_query.filter(BilateralTrade.commodity_code == commodity)
 
-    # Totals
-    totals = base_query.with_entities(
-        func.sum(BilateralTrade.export_value_usd).label("total_exports"),
-        func.sum(BilateralTrade.import_value_usd).label("total_imports"),
-    ).first()
+    trades = base_query.all()
+    total_exports = 0.0
+    total_imports = 0.0
+    commodity_agg: dict[str, dict] = {}
+    partner_agg: dict[str, float] = {}
 
-    # By commodity
-    by_commodity = (
-        base_query.with_entities(
-            BilateralTrade.commodity_code,
-            func.sum(BilateralTrade.export_value_usd).label("exports"),
-            func.sum(BilateralTrade.import_value_usd).label("imports"),
-        )
-        .group_by(BilateralTrade.commodity_code)
-        .all()
-    )
+    for t in trades:
+        if has_own_reports:
+            exp = t.export_value_usd or 0
+            imp = t.import_value_usd or 0
+            partner = t.partner_iso3
+        else:
+            # Flip: partner's export to us = our import, partner's import from us = our export
+            exp = t.import_value_usd or 0
+            imp = t.export_value_usd or 0
+            partner = t.reporter_iso3
 
-    # Top partners by export value
-    top_partners = (
-        base_query.with_entities(
-            BilateralTrade.partner_iso3,
-            func.sum(
-                BilateralTrade.export_value_usd + BilateralTrade.import_value_usd
-            ).label("total_value"),
-        )
-        .group_by(BilateralTrade.partner_iso3)
-        .order_by(
-            func.sum(
-                BilateralTrade.export_value_usd + BilateralTrade.import_value_usd
-            ).desc()
-        )
-        .limit(10)
-        .all()
-    )
+        total_exports += exp
+        total_imports += imp
 
-    # Resolve partner names
-    partner_isos = [p.partner_iso3 for p in top_partners]
+        if t.commodity_code not in commodity_agg:
+            commodity_agg[t.commodity_code] = {"exports": 0.0, "imports": 0.0}
+        commodity_agg[t.commodity_code]["exports"] += exp
+        commodity_agg[t.commodity_code]["imports"] += imp
+
+        partner_agg[partner] = partner_agg.get(partner, 0) + exp + imp
+
+    # Top partners
+    top_partner_list = sorted(partner_agg.items(), key=lambda x: x[1], reverse=True)[:10]
+    partner_isos = [p[0] for p in top_partner_list]
     partner_names = {
         c.iso3: c.name
         for c in db.query(Country).filter(Country.iso3.in_(partner_isos)).all()
@@ -182,23 +204,27 @@ def get_trade_summary(
 
     return {
         "country": {"iso3": country.iso3, "name": country.name},
-        "total_exports_usd": totals.total_exports or 0,
-        "total_imports_usd": totals.total_imports or 0,
+        "total_exports_usd": total_exports,
+        "total_imports_usd": total_imports,
         "by_commodity": [
             {
-                "commodity_code": row.commodity_code,
-                "exports": row.exports or 0,
-                "imports": row.imports or 0,
+                "commodity_code": code,
+                "exports": vals["exports"],
+                "imports": vals["imports"],
             }
-            for row in by_commodity
+            for code, vals in sorted(
+                commodity_agg.items(),
+                key=lambda x: x[1]["exports"] + x[1]["imports"],
+                reverse=True,
+            )
         ],
         "top_partners": [
             {
-                "iso3": row.partner_iso3,
-                "name": partner_names.get(row.partner_iso3, "Unknown"),
-                "total_value": row.total_value or 0,
+                "iso3": p_iso,
+                "name": partner_names.get(p_iso, "Unknown"),
+                "total_value": p_val,
             }
-            for row in top_partners
+            for p_iso, p_val in top_partner_list
         ],
     }
 
@@ -290,28 +316,53 @@ def get_routes_for_country(iso3: str, db: Session = Depends(get_db)):
         .all()
     )
 
+    if not routes:
+        return {"country": iso, "routes": []}
+
+    route_ids = [r.id for r in routes]
+
+    # Batch-fetch all segments for these routes
+    all_segments = (
+        db.query(TradeRouteSegment)
+        .filter(TradeRouteSegment.route_id.in_(route_ids))
+        .order_by(TradeRouteSegment.route_id, TradeRouteSegment.sequence_order)
+        .all()
+    )
+
+    # Batch-fetch all regions
+    region_ids = list(set(seg.region_id for seg in all_segments))
+    all_regions = db.query(Region).filter(Region.id.in_(region_ids)).all() if region_ids else []
+    region_map = {r.id: r for r in all_regions}
+
+    # Group segments by route_id
+    segments_by_route: dict[int, list] = {}
+    for seg in all_segments:
+        segments_by_route.setdefault(seg.route_id, []).append(seg)
+
+    # Batch-fetch all partner countries
+    partner_isos = set()
+    for route in routes:
+        partner = route.destination_iso3 if route.origin_iso3 == iso else route.origin_iso3
+        partner_isos.add(partner)
+    partner_countries = db.query(Country).filter(Country.iso3.in_(partner_isos)).all()
+    country_map = {c.iso3: c.name for c in partner_countries}
+
     results = []
     for route in routes:
-        segments = (
-            db.query(TradeRouteSegment)
-            .filter_by(route_id=route.id)
-            .order_by(TradeRouteSegment.sequence_order)
-            .all()
-        )
+        segs = segments_by_route.get(route.id, [])
         region_names = []
         region_centers = []
-        for seg in segments:
-            region = db.query(Region).filter_by(id=seg.region_id).first()
+        for seg in segs:
+            region = region_map.get(seg.region_id)
             if region:
                 region_names.append(region.name)
                 region_centers.append({"lat": region.center_lat, "lng": region.center_lng})
 
         partner = route.destination_iso3 if route.origin_iso3 == iso else route.origin_iso3
-        partner_country = db.query(Country).filter_by(iso3=partner).first()
 
         results.append({
             "partner_iso3": partner,
-            "partner_name": partner_country.name if partner_country else partner,
+            "partner_name": country_map.get(partner, partner),
             "total_cost": route.total_cost,
             "transport_mode": route.transport_mode,
             "region_names": region_names,

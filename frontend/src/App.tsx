@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Globe from "./components/Globe";
 import ControlPanel from "./components/ControlPanel";
 import TradeInfoPanel from "./components/TradeInfoPanel";
@@ -12,7 +12,6 @@ export default function App() {
     countries,
     commodities,
     selectedCountry,
-    tradeSummary,
     arcs,
     paths,
     commodityFilter,
@@ -41,6 +40,10 @@ export default function App() {
     async (iso3: string | null) => {
       setRegionPaths([]);
       selectCountry(iso3);
+      // If info panel is already open, update it to the newly clicked country
+      if (iso3 && tradeInfoIso3) {
+        setTradeInfoIso3(iso3);
+      }
       if (iso3) {
         try {
           const resp = await getTransitRoutes(iso3);
@@ -63,7 +66,7 @@ export default function App() {
         }
       }
     },
-    [selectCountry]
+    [selectCountry, tradeInfoIso3]
   );
 
   const handleCountryRightClick = useCallback(
@@ -109,17 +112,17 @@ export default function App() {
   const selectedName =
     countries.find((c) => c.iso3 === selectedCountry)?.name || null;
 
-  // Merge paths: combine country trade paths with transit/region routes
-  const activePaths = regionPaths.length > 0
-    ? [...paths, ...regionPaths]
-    : paths;
+  const activePaths = useMemo(
+    () => regionPaths.length > 0 ? [...paths, ...regionPaths] : paths,
+    [paths, regionPaths]
+  );
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
       <Globe
         arcs={arcs}
         paths={activePaths}
-        viewMode={regionPaths.length > 0 && paths.length === 0 ? "routes" : viewMode}
+        viewMode={viewMode}
         selectedCountry={selectedCountry}
         onCountryClick={handleCountryClick}
         onCountryRightClick={handleCountryRightClick}

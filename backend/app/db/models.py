@@ -111,3 +111,40 @@ class TradeRouteTransit(Base):
         Index("ix_transit_route_id", "route_id"),
         Index("ix_transit_iso3", "transit_iso3"),
     )
+
+
+class CommodityDetail(Base):
+    """HS4-level commodity lookup."""
+    __tablename__ = "commodities_hs4"
+
+    hs4_code = Column(String(4), primary_key=True)
+    name = Column(String, nullable=False)
+    parent_hs2 = Column(String(2), nullable=False)
+    category = Column(String, nullable=False)
+
+
+class BilateralTradeDetail(Base):
+    """HS4-level bilateral trade data."""
+    __tablename__ = "bilateral_trades_hs4"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reporter_iso3 = Column(String(3), ForeignKey("countries.iso3"), nullable=False)
+    partner_iso3 = Column(String(3), ForeignKey("countries.iso3"), nullable=False)
+    commodity_hs4 = Column(String(4), nullable=False)
+    parent_hs2 = Column(String(2), nullable=False)
+    year = Column(Integer, nullable=False)
+    export_value_usd = Column(Float, default=0.0)
+    import_value_usd = Column(Float, default=0.0)
+    weight_kg = Column(Float, default=0.0)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "reporter_iso3", "partner_iso3", "commodity_hs4", "year",
+            name="uq_trade_hs4_record"
+        ),
+        Index("ix_hs4_reporter", "reporter_iso3"),
+        Index("ix_hs4_partner", "partner_iso3"),
+        Index("ix_hs4_year", "year"),
+        Index("ix_hs4_commodity", "commodity_hs4"),
+        Index("ix_hs4_parent", "parent_hs2"),
+    )

@@ -175,3 +175,26 @@ export COMTRADE_API_KEY=your_key_here
 ├── run_server.bat                 # Windows launcher
 └── run_server.sh                  # Linux/Mac launcher
 ```
+
+
+## Data update
+
+# Download 2023 (fresh start — skips already-fetched reporters)
+.venv\Scripts\python pull_data_hs4.py --year 2023
+
+# Resume from a specific reporter if it gets interrupted (0-based index)
+.venv\Scripts\python pull_data_hs4.py --year 2023 --resume-from 2
+
+# Later, download other years
+.venv\Scripts\python pull_data_hs4.py --year 2022
+.venv\Scripts\python pull_data_hs4.py --from-year 2020 --to-year 2023
+
+# Add new HS2 chapters to existing system
+.venv\Scripts\python pull_data.py --year 2023
+
+# Pull existing HS2 chapters for a specific year (already configured 10 chapters)
+.venv\Scripts\python pull_data.py --year 2023
+
+# To add MORE HS2 chapters, I'll create a separate script below
+.venv\Scripts\python pull_data_extra_hs2.py --year 2023
+.venv\Scripts\python pull_data_extra_hs2.py --from-year 2005 --to-year 2010
